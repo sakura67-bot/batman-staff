@@ -233,19 +233,31 @@ async def super(ctx, member: discord.Member, *args, **kwargs):
 @bot.command()
 @commands.guild_only()
 async def staff(ctx, member: discord.Member, *args, **kwargs):
-    """Assigns Junior Moderator and Staff Team roles automatically."""
+    """Assigns Staff Team and Trial Mod/Moderator roles automatically."""
     if ctx.author.id != OWNER_ID:
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
         return
 
-    jr = discord.utils.find(lambda r: "junior moderator" in r.name.lower(), ctx.guild.roles)
-    st = discord.utils.find(lambda r: "staff team" in r.name.lower(), ctx.guild.roles)
-    found_roles = [r for r in [jr, st] if r]
+    staff_team_role = discord.utils.find(lambda r: "staff team" in r.name.lower(), ctx.guild.roles)
+    trial_mod_role = discord.utils.find(lambda r: "trial mod" in r.name.lower() or "trial moderator" in r.name.lower(), ctx.guild.roles)
+
+    found_roles = [r for r in [staff_team_role, trial_mod_role] if r]
     if not found_roles:
-        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Roles not found.", color=discord.Color.red()))
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Could not find 'Staff Team' or 'Trial Mod/Moderator' roles in this server.", color=discord.Color.red()))
         return
+
     await member.add_roles(*found_roles, reason=f"Staff roles assigned by {ctx.author}")
-    await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['success']} Assigned staff roles to {member.mention}.", color=discord.Color.green()))
+    assigned_mentions = ", ".join([r.mention for r in found_roles])
+    
+    embed = discord.Embed(
+        title=f"{EMOJIS['success']} Staff Team Roles Assigned",
+        description=f"Successfully assigned {assigned_mentions} to {member.mention}.",
+        color=discord.Color.green(),
+        timestamp=discord.utils.utcnow()
+    )
+    embed.set_footer(text=f"Action by {ctx.author}", icon_url=ctx.author.display_avatar.url)
+    await ctx.reply(embed=embed)
+    await audit(ctx.guild, f"Staff roles ({assigned_mentions}) given to {member} ({member.id}) by {ctx.author}")
 
 
 @bot.command()
