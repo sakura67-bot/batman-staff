@@ -143,57 +143,6 @@ async def send_promodemo_embed(guild, member, role, action, moderator):
         pass
 
 
-# =========================
-# RANK LADDER SETUP VIEW
-# =========================
-
-class RankSelectView(discord.ui.View):
-    def __init__(self, guild: discord.Guild):
-        super().__init__(timeout=180)
-        roles = [r for r in guild.roles if not r.is_default() and not r.managed][:25]
-        
-        options = []
-        for r_obj in roles:
-            options.append(
-                discord.SelectOption(
-                    label=r_obj.name[:100], 
-                    value=str(r_obj.id)
-                )
-            )
-
-        if not options:
-            options = [discord.SelectOption(label="No valid roles available", value="none")]
-
-        self.select_menu = discord.ui.Select(
-            placeholder="Select staff ranks in order (Lowest to Highest)...",
-            min_values=1,
-            max_values=len(options),
-            options=options
-        )
-        self.select_menu.callback = self.select_callback
-        self.add_item(self.select_menu)
-
-    async def select_callback(self, interaction: discord.Interaction):
-        if self.select_menu.values == ["none"]:
-            await interaction.response.send_message(f"{EMOJIS['error']} No valid roles to configure.", ephemeral=True)
-            return
-
-        guild_id = str(interaction.guild.id)
-        selected_role_ids = [int(val) for val in self.select_menu.values]
-        if "rank_ladders" not in config:
-            config["rank_ladders"] = {}
-        config["rank_ladders"][guild_id] = selected_role_ids
-        save_config()
-
-        roles_mention = ", ".join([f"<@&{r_id}>" for r_id in selected_role_ids])
-        embed = discord.Embed(
-            title=f"{EMOJIS['success']} Rank Ladder Configured Successfully!",
-            description=f"**Ordered Ladder Hierarchy:**\n{roles_mention}",
-            color=discord.Color.green()
-        )
-        await interaction.response.edit_message(embed=embed, view=None)
-
-
 async def change_staff_role(ctx, member, target_role, action):
     if member.id == ctx.author.id or member.id == ctx.guild.owner_id or target_role.is_default() or target_role.managed:
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} Action unauthorized or invalid role.", color=discord.Color.orange()))
@@ -443,19 +392,83 @@ async def roll(ctx, *args, **kwargs):
 
 
 # =========================
-# SETUP COMMANDS
+# SETUP COMMANDS (RANKS ADD / CLEAR)
 # =========================
 
-@bot.command()
+@bot.group(invoke_without_command=True)
 @commands.guild_only()
-async def setranks(ctx, *args, **kwargs):
+async def ranks(ctx, *args, **kwargs):
+    """Shows current rank ladder configuration."""
     if ctx.author.id != OWNER_ID:
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
         return
 
-    view = RankSelectView(ctx.guild)
-    embed = discord.Embed(title=f"{EMOJIS['ladder']} Rank Ladder Setup", description="Select roles in order from lowest to highest.", color=discord.Color.blurple())
-    await ctx.reply(embed=embed, view=view)
+    ladder = config.get("rank_ladders", {}).get(str(ctx.guild.id), [])
+    ladder_str = " -> ".join([f"<@&{r_id}>" for r_id in ladder]) if ladder else "Not configured. Use `>ranks add @role`"
+    
+    embed = discord.Embed(
+        title=f"{EMOJIS['ladder']} Staff Rank Ladder",
+        description=f"**Current Order (Lowest to Highest):**\n{ladder_str}",
+        color=discord.Color.blurple()
+    )
+    await ctx.reply(embed=embed)
+
+
+@ranks.command(name="add")
+@commands.guild_only()
+async def ranks_add(ctx, role: discord.Role, *args, **kwargs):
+    """Adds a role to the rank ladder sequence (lowest to highest)."""
+    if ctx.author.id != OWNER_ID:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
+        return
+
+    if role.is_default() or role.managed:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} You cannot add that role to the ladder.", color=discord.Color.orange()))
+        return
+
+    guild_id = str(ctx.guild.id)
+    if "rank_ladders" not in config:
+        config["rank_ladders"] = {}
+    if guild_id not in config["rank_ladders"]:
+        config["rank_ladders"][guild_id] = []
+
+    if role.id in config["rank_ladders"][guild_id]:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} That role is already in the rank ladder.", color=discord.Color.orange()))
+        return
+
+    config["rank_ladders"][guild_id].append(role.id)
+    save_config()
+
+    ladder = config["rank_ladders"][guild_id]
+    ladder_str = " -> ".join([f"<@&{r_id}>" for r_id in ladder])
+
+    embed = discord.Embed(
+        title=f"{EMOJIS['success']} Rank Added to Ladder",
+        description=f"Added {role.mention} successfully!\n\n**Current Ladder:**\n{ladder_str}",
+        color=discord.Color.green()
+    )
+    await ctx.reply(embed=embed)
+
+
+@ranks.command(name="clear")
+@commands.guild_only()
+async def ranks_clear(ctx, *args, **kwargs):
+    """Clears the entire rank ladder configuration."""
+    if ctx.author.id != OWNER_ID:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
+        return
+
+    guild_id = str(ctx.guild.id)
+    if "rank_ladders" in config and guild_id in config["rank_ladders"]:
+        config["rank_ladders"][guild_id] = []
+        save_config()
+
+    embed = discord.Embed(
+        title=f"{EMOJIS['success']} Rank Ladder Cleared",
+        description="The rank ladder sequence has been reset.",
+        color=discord.Color.red()
+    )
+    await ctx.reply(embed=embed)
 
 
 @bot.command()
@@ -516,7 +529,7 @@ async def help_command(ctx, *args, **kwargs):
     embed.add_field(name=f"{EMOJIS['warning']} Moderation", value="`>kick`, `>ban`, `>clear`, `>mute`", inline=False)
     embed.add_field(name=f"{EMOJIS['user']} Utility & Info", value="`>ping`, `>serverinfo`, `>userinfo`, `>avatar`", inline=False)
     embed.add_field(name=f"{EMOJIS['success']} Fun & Games", value="`>coinflip`, `>roll`", inline=False)
-    embed.add_field(name=f"{EMOJIS['gear']} Setup", value="`>setranks`, `>setstaffsupervisor`, `>setpromodemo`, `>setaudit`, `>staffsettings`", inline=False)
+    embed.add_field(name=f"{EMOJIS['gear']} Setup", value="`>ranks add @role`, `>ranks clear`, `>setstaffsupervisor`, `>setpromodemo`, `>setaudit`", inline=False)
     await ctx.reply(embed=embed, mention_author=False)
 
 
