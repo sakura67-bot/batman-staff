@@ -83,24 +83,16 @@ def guild_setting(setting, guild_id):
 
 
 # =========================
-# PERMISSION CHECKS
+# PERMISSION HELPERS
 # =========================
 
-def check_owner():
-    async def predicate(ctx):
-        return ctx.author.id == OWNER_ID
-    return commands.check(predicate)
-
-
-def check_supervisor():
-    async def predicate(ctx):
-        if ctx.author.id == OWNER_ID:
-            return True
-        role_id = guild_setting("supervisor_roles", ctx.guild.id)
-        if not role_id:
-            return False
-        return any(role.id == int(role_id) for role in ctx.author.roles)
-    return commands.check(predicate)
+def user_is_supervisor(ctx):
+    if ctx.author.id == OWNER_ID:
+        return True
+    role_id = guild_setting("supervisor_roles", ctx.guild.id)
+    if not role_id:
+        return False
+    return any(role.id == int(role_id) for role in ctx.author.roles)
 
 
 # =========================
@@ -231,9 +223,12 @@ async def change_staff_role(ctx, member, target_role, action):
 
 @bot.command()
 @commands.guild_only()
-@check_supervisor()
 async def promo(ctx, staff: discord.Member, target_role: discord.Role = None):
     """Promotes a staff member."""
+    if not user_is_supervisor(ctx):
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} You don't have permission to use this command.", color=discord.Color.red()))
+        return
+
     if target_role is None:
         ladder = config.get("rank_ladders", {}).get(str(ctx.guild.id))
         if not ladder:
@@ -251,9 +246,12 @@ async def promo(ctx, staff: discord.Member, target_role: discord.Role = None):
 
 @bot.command()
 @commands.guild_only()
-@check_supervisor()
 async def demo(ctx, staff: discord.Member, target_role: discord.Role = None):
     """Demotes a staff member."""
+    if not user_is_supervisor(ctx):
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} You don't have permission to use this command.", color=discord.Color.red()))
+        return
+
     if target_role is None:
         ladder = config.get("rank_ladders", {}).get(str(ctx.guild.id))
         if not ladder:
@@ -271,9 +269,12 @@ async def demo(ctx, staff: discord.Member, target_role: discord.Role = None):
 
 @bot.command()
 @commands.guild_only()
-@check_owner()
 async def super(ctx, member: discord.Member):
     """Assigns the supervisor role."""
+    if ctx.author.id != OWNER_ID:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
+        return
+
     role_id = guild_setting("supervisor_roles", ctx.guild.id)
     if not role_id:
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} Supervisor role not set up.", color=discord.Color.orange()))
@@ -285,9 +286,12 @@ async def super(ctx, member: discord.Member):
 
 @bot.command()
 @commands.guild_only()
-@check_owner()
 async def staff(ctx, member: discord.Member):
     """Assigns Junior Moderator and Staff Team roles automatically."""
+    if ctx.author.id != OWNER_ID:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
+        return
+
     jr = discord.utils.find(lambda r: "junior moderator" in r.name.lower(), ctx.guild.roles)
     st = discord.utils.find(lambda r: "staff team" in r.name.lower(), ctx.guild.roles)
     found_roles = [r for r in [jr, st] if r]
@@ -300,9 +304,12 @@ async def staff(ctx, member: discord.Member):
 
 @bot.command()
 @commands.guild_only()
-@check_supervisor()
 async def role(ctx, member: discord.Member, target_role: discord.Role):
     """Toggles a role on a member."""
+    if not user_is_supervisor(ctx):
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} You don't have permission to use this command.", color=discord.Color.red()))
+        return
+
     if target_role in member.roles:
         await member.remove_roles(target_role)
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['demo']} Removed {target_role.mention} from {member.mention}.", color=discord.Color.red()))
@@ -313,9 +320,12 @@ async def role(ctx, member: discord.Member, target_role: discord.Role):
 
 @bot.command()
 @commands.guild_only()
-@check_owner()
 async def steal(ctx, emoji: str, name: str = None):
     """Steals an emoji into the server."""
+    if ctx.author.id != OWNER_ID:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
+        return
+
     import re
     match = re.match(r"<(a?):([a-zA-Z0-9_]+):([0-9]+)>", emoji)
     if not match:
@@ -441,8 +451,11 @@ async def roll(ctx):
 
 @bot.command()
 @commands.guild_only()
-@check_owner()
 async def setranks(ctx):
+    if ctx.author.id != OWNER_ID:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
+        return
+
     view = RankSelectView(ctx.guild)
     embed = discord.Embed(title=f"{EMOJIS['ladder']} Rank Ladder Setup", description="Select roles in order from lowest to highest.", color=discord.Color.blurple())
     await ctx.reply(embed=embed, view=view)
@@ -450,8 +463,11 @@ async def setranks(ctx):
 
 @bot.command()
 @commands.guild_only()
-@check_owner()
 async def setstaffsupervisor(ctx, assigned_role: discord.Role):
+    if ctx.author.id != OWNER_ID:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
+        return
+
     config["supervisor_roles"][str(ctx.guild.id)] = assigned_role.id
     save_config()
     await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['success']} Supervisor role set to {assigned_role.mention}.", color=discord.Color.green()))
@@ -459,8 +475,11 @@ async def setstaffsupervisor(ctx, assigned_role: discord.Role):
 
 @bot.command()
 @commands.guild_only()
-@check_owner()
 async def setpromodemo(ctx, channel: discord.TextChannel):
+    if ctx.author.id != OWNER_ID:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
+        return
+
     config["promodemo_channels"][str(ctx.guild.id)] = channel.id
     save_config()
     await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['success']} Promo channel set to {channel.mention}.", color=discord.Color.green()))
@@ -468,8 +487,11 @@ async def setpromodemo(ctx, channel: discord.TextChannel):
 
 @bot.command()
 @commands.guild_only()
-@check_owner()
 async def setaudit(ctx, channel: discord.TextChannel):
+    if ctx.author.id != OWNER_ID:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
+        return
+
     config["audit_channels"][str(ctx.guild.id)] = channel.id
     save_config()
     await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['success']} Audit channel set to {channel.mention}.", color=discord.Color.green()))
@@ -477,8 +499,11 @@ async def setaudit(ctx, channel: discord.TextChannel):
 
 @bot.command()
 @commands.guild_only()
-@check_owner()
 async def staffsettings(ctx):
+    if ctx.author.id != OWNER_ID:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
+        return
+
     embed = discord.Embed(title=f"{EMOJIS['gear']} Bot Settings Configured", color=discord.Color.blurple())
     await ctx.reply(embed=embed)
 
