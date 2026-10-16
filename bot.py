@@ -24,7 +24,7 @@ EMOJI_GUILD_ID = os.getenv("EMOJI_GUILD_ID")
 EMOJI_SPECS = {
     "r2g_staff": ("S", (108, 73, 180), (255, 230, 128), False),
     "r2g_settings": ("⚙", (67, 78, 112), (235, 240, 255), False),
-    "r2g_promote": ("↑", (36, 145, 102), (230, 255, 238), False),
+    "r2g_promote": ("↑", (36, 145, 102), (230,255, 238), False),
     "r2g_demote": ("↓", (185, 66, 81), (255, 230, 232), False),
     "r2g_audit": ("✓", (42, 116, 170), (230, 248, 255), False),
     "r2g_star": ("★", (186, 135, 35), (255, 245, 178), False),
