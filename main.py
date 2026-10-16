@@ -86,13 +86,13 @@ def guild_setting(setting, guild_id):
 # PERMISSION CHECKS
 # =========================
 
-def is_owner():
+def check_owner():
     async def predicate(ctx):
         return ctx.author.id == OWNER_ID
     return commands.check(predicate)
 
 
-def is_supervisor():
+def check_supervisor():
     async def predicate(ctx):
         if ctx.author.id == OWNER_ID:
             return True
@@ -160,11 +160,11 @@ class RankSelect(discord.ui.Select):
         roles = [r for r in guild.roles if not r.is_default() and not r.managed][:25]
         
         options = []
-        for role in roles:
+        for r_obj in roles:
             options.append(
                 discord.SelectOption(
-                    label=role.name[:100], 
-                    value=str(role.id)
+                    label=r_obj.name[:100], 
+                    value=str(r_obj.id)
                 )
             )
 
@@ -205,22 +205,22 @@ class RankSelectView(discord.ui.View):
         self.add_item(RankSelect(guild))
 
 
-async def change_staff_role(ctx, member, role, action):
-    if member.id == ctx.author.id or member.id == ctx.guild.owner_id or role.is_default() or role.managed:
+async def change_staff_role(ctx, member, target_role, action):
+    if member.id == ctx.author.id or member.id == ctx.guild.owner_id or target_role.is_default() or target_role.managed:
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} Action unauthorized or invalid role.", color=discord.Color.orange()))
         return
     try:
         if action == "promote":
-            await member.add_roles(role, reason=f"Staff promotion by {ctx.author}")
+            await member.add_roles(target_role, reason=f"Staff promotion by {ctx.author}")
             result = "promoted"
         else:
-            await member.remove_roles(role, reason=f"Staff demotion by {ctx.author}")
+            await member.remove_roles(target_role, reason=f"Staff demotion by {ctx.author}")
             result = "demoted"
 
-        await send_promodemo_embed(ctx.guild, member, role, result, ctx.author)
-        await audit(ctx.guild, f"Staff {result}: {member} | Role: {role.name} | By: {ctx.author}")
+        await send_promodemo_embed(ctx.guild, member, target_role, result, ctx.author)
+        await audit(ctx.guild, f"Staff {result}: {member} | Role: {target_role.name} | By: {ctx.author}")
         emoji = EMOJIS['promo'] if result == "promoted" else EMOJIS['demo']
-        await ctx.reply(embed=discord.Embed(description=f"{emoji} {member.mention} was **{result}**: {role.mention}", color=discord.Color.green() if result == "promoted" else discord.Color.red()))
+        await ctx.reply(embed=discord.Embed(description=f"{emoji} {member.mention} was **{result}**: {target_role.mention}", color=discord.Color.green() if result == "promoted" else discord.Color.red()))
     except discord.Forbidden:
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Missing permissions to modify roles.", color=discord.Color.red()))
 
@@ -231,10 +231,10 @@ async def change_staff_role(ctx, member, role, action):
 
 @bot.command()
 @commands.guild_only()
-@is_supervisor()
-async def promo(ctx, staff: discord.Member, role: discord.Role = None):
+@check_supervisor()
+async def promo(ctx, staff: discord.Member, target_role: discord.Role = None):
     """Promotes a staff member."""
-    if role is None:
+    if target_role is None:
         ladder = config.get("rank_ladders", {}).get(str(ctx.guild.id))
         if not ladder:
             await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} No rank ladder configured.", color=discord.Color.orange()))
@@ -245,16 +245,16 @@ async def promo(ctx, staff: discord.Member, role: discord.Role = None):
         if next_index >= len(ladder):
             await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} Already at the highest rank!", color=discord.Color.orange()))
             return
-        role = ctx.guild.get_role(ladder[next_index])
-    await change_staff_role(ctx, staff, role, "promote")
+        target_role = ctx.guild.get_role(ladder[next_index])
+    await change_staff_role(ctx, staff, target_role, "promote")
 
 
 @bot.command()
 @commands.guild_only()
-@is_supervisor()
-async def demo(ctx, staff: discord.Member, role: discord.Role = None):
+@check_supervisor()
+async def demo(ctx, staff: discord.Member, target_role: discord.Role = None):
     """Demotes a staff member."""
-    if role is None:
+    if target_role is None:
         ladder = config.get("rank_ladders", {}).get(str(ctx.guild.id))
         if not ladder:
             await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} No rank ladder configured.", color=discord.Color.orange()))
@@ -265,55 +265,55 @@ async def demo(ctx, staff: discord.Member, role: discord.Role = None):
         if prev_index < 0:
             await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} Already at the lowest rank!", color=discord.Color.orange()))
             return
-        role = ctx.guild.get_role(ladder[prev_index])
-    await change_staff_role(ctx, staff, role, "demote")
+        target_role = ctx.guild.get_role(ladder[prev_index])
+    await change_staff_role(ctx, staff, target_role, "demote")
 
 
 @bot.command()
 @commands.guild_only()
-@is_owner()
+@check_owner()
 async def super(ctx, member: discord.Member):
     """Assigns the supervisor role."""
     role_id = guild_setting("supervisor_roles", ctx.guild.id)
     if not role_id:
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} Supervisor role not set up.", color=discord.Color.orange()))
         return
-    role = ctx.guild.get_role(int(role_id))
-    await member.add_roles(role, reason=f"Supervisor assigned by {ctx.author}")
+    assigned_role = ctx.guild.get_role(int(role_id))
+    await member.add_roles(assigned_role, reason=f"Supervisor assigned by {ctx.author}")
     await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['success']} Assigned supervisor role to {member.mention}.", color=discord.Color.green()))
 
 
 @bot.command()
 @commands.guild_only()
-@is_owner()
+@check_owner()
 async def staff(ctx, member: discord.Member):
     """Assigns Junior Moderator and Staff Team roles automatically."""
     jr = discord.utils.find(lambda r: "junior moderator" in r.name.lower(), ctx.guild.roles)
     st = discord.utils.find(lambda r: "staff team" in r.name.lower(), ctx.guild.roles)
-    roles = [r for r in [jr, st] if r]
-    if not roles:
+    found_roles = [r for r in [jr, st] if r]
+    if not found_roles:
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Roles not found.", color=discord.Color.red()))
         return
-    await member.add_roles(*roles, reason=f"Staff roles assigned by {ctx.author}")
+    await member.add_roles(*found_roles, reason=f"Staff roles assigned by {ctx.author}")
     await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['success']} Assigned staff roles to {member.mention}.", color=discord.Color.green()))
 
 
 @bot.command()
 @commands.guild_only()
-@is_supervisor()
-async def role(ctx, member: discord.Member, role: discord.Role):
+@check_supervisor()
+async def role(ctx, member: discord.Member, target_role: discord.Role):
     """Toggles a role on a member."""
-    if role in member.roles:
-        await member.remove_roles(role)
-        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['demo']} Removed {role.mention} from {member.mention}.", color=discord.Color.red()))
+    if target_role in member.roles:
+        await member.remove_roles(target_role)
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['demo']} Removed {target_role.mention} from {member.mention}.", color=discord.Color.red()))
     else:
-        await member.add_roles(role)
-        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['promo']} Added {role.mention} to {member.mention}.", color=discord.Color.green()))
+        await member.add_roles(target_role)
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['promo']} Added {target_role.mention} to {member.mention}.", color=discord.Color.green()))
 
 
 @bot.command()
 @commands.guild_only()
-@is_owner()
+@check_owner()
 async def steal(ctx, emoji: str, name: str = None):
     """Steals an emoji into the server."""
     import re
@@ -441,7 +441,7 @@ async def roll(ctx):
 
 @bot.command()
 @commands.guild_only()
-@is_owner()
+@check_owner()
 async def setranks(ctx):
     view = RankSelectView(ctx.guild)
     embed = discord.Embed(title=f"{EMOJIS['ladder']} Rank Ladder Setup", description="Select roles in order from lowest to highest.", color=discord.Color.blurple())
@@ -450,16 +450,16 @@ async def setranks(ctx):
 
 @bot.command()
 @commands.guild_only()
-@is_owner()
-async def setstaffsupervisor(ctx, role: discord.Role):
-    config["supervisor_roles"][str(ctx.guild.id)] = role.id
+@check_owner()
+async def setstaffsupervisor(ctx, assigned_role: discord.Role):
+    config["supervisor_roles"][str(ctx.guild.id)] = assigned_role.id
     save_config()
-    await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['success']} Supervisor role set to {role.mention}.", color=discord.Color.green()))
+    await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['success']} Supervisor role set to {assigned_role.mention}.", color=discord.Color.green()))
 
 
 @bot.command()
 @commands.guild_only()
-@is_owner()
+@check_owner()
 async def setpromodemo(ctx, channel: discord.TextChannel):
     config["promodemo_channels"][str(ctx.guild.id)] = channel.id
     save_config()
@@ -468,7 +468,7 @@ async def setpromodemo(ctx, channel: discord.TextChannel):
 
 @bot.command()
 @commands.guild_only()
-@is_owner()
+@check_owner()
 async def setaudit(ctx, channel: discord.TextChannel):
     config["audit_channels"][str(ctx.guild.id)] = channel.id
     save_config()
@@ -477,7 +477,7 @@ async def setaudit(ctx, channel: discord.TextChannel):
 
 @bot.command()
 @commands.guild_only()
-@is_owner()
+@check_owner()
 async def staffsettings(ctx):
     embed = discord.Embed(title=f"{EMOJIS['gear']} Bot Settings Configured", color=discord.Color.blurple())
     await ctx.reply(embed=embed)
