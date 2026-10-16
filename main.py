@@ -157,7 +157,6 @@ async def send_promodemo_embed(guild, member, role, action, moderator):
 
 class RankSelect(discord.ui.Select):
     def __init__(self, guild: discord.Guild):
-        # Strictly limited to a maximum of 25 valid roles to comply with Discord limits
         roles = [r for r in guild.roles if not r.is_default() and not r.managed][:25]
         
         options = []
@@ -512,7 +511,12 @@ async def on_ready():
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
-    await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} An error occurred or permissions are missing.", color=discord.Color.red()))
+    if isinstance(error, commands.CheckFailure):
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} You don't have permission to use this command.", color=discord.Color.red()))
+        return
+    
+    logging.exception("Command error:", exc_info=error)
+    await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Error: `{str(error)}`", color=discord.Color.red()))
 
 
 load_config()
