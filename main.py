@@ -239,7 +239,7 @@ async def promo(ctx, staff: discord.Member, target_role: discord.Role = None, *a
 @bot.command()
 @commands.guild_only()
 async def demo(ctx, staff: discord.Member, target_role: discord.Role = None, *args, **kwargs):
-    """Demotes a staff member."""
+    """Demotes a staff member from their highest ladder rank."""
     if not user_is_supervisor(ctx):
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} You don't have permission to use this command.", color=discord.Color.red()))
         return
@@ -251,18 +251,18 @@ async def demo(ctx, staff: discord.Member, target_role: discord.Role = None, *ar
             return
 
         user_role_ids = [r.id for r in staff.roles]
-        matched_index = -1
         
+        matched_index = -1
         for idx, r_id in enumerate(ladder):
             if r_id in user_role_ids:
                 matched_index = idx
 
-        prev_index = matched_index - 1
-        if prev_index < 0:
-            await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} {staff.mention} has no lower rank on the ladder to demote to!", color=discord.Color.orange()))
+        if matched_index == -1:
+            await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} {staff.mention} does not have any rank from the ladder!", color=discord.Color.orange()))
             return
 
-        target_role = ctx.guild.get_role(ladder[prev_index])
+        # Target role to remove is their current highest rank on the ladder
+        target_role = ctx.guild.get_role(ladder[matched_index])
 
     await change_staff_role(ctx, staff, target_role, "demote")
 
@@ -324,7 +324,7 @@ async def superintro(ctx, *args, **kwargs):
         name=f"{EMOJIS['demo']} `>demo @member [@role]`",
         value=(
             f"{EMOJIS['bullet']} Demotes a staff member.\n"
-            f"{EMOJIS['bullet']} **Auto Ladder:** If no role is given, drops them to the previous step down."
+            f"{EMOJIS['bullet']} **Auto Ladder:** If no role is given, strips their highest rank to drop them down."
         ),
         inline=False
     )
