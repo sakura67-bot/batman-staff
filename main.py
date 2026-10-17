@@ -104,9 +104,8 @@ def user_is_staff(ctx):
 
 
 def check_and_increment_action_limit(ctx, action_type, limit=3):
-    """Tracks daily action quotas (kick/ban) for normal staff members."""
     if user_is_supervisor(ctx) or ctx.author.id == OWNER_ID:
-        return True, 0  # Supervisors & Owners are exempt from limits
+        return True, 0
 
     import time
     now = time.time()
@@ -118,7 +117,6 @@ def check_and_increment_action_limit(ctx, action_type, limit=3):
     if user_id not in config["staff_limits"]:
         config["staff_limits"][user_id] = {"kicks": [], "bans": []}
 
-    # Remove timestamps older than 24 hours (86,400 seconds)
     timestamps = [t for t in config["staff_limits"][user_id].get(action_type, []) if now - t < 86400]
 
     if len(timestamps) >= limit:
@@ -458,7 +456,7 @@ async def steal(ctx, emoji: str, name: str = None, *args, **kwargs):
 
 
 # =========================
-# MODERATION COMMANDS (WITH STAFF LIMITS)
+# MODERATION COMMANDS
 # =========================
 
 @bot.command()
@@ -715,11 +713,55 @@ async def setaudit(ctx, channel: discord.TextChannel, *args, **kwargs):
 @bot.command()
 @commands.guild_only()
 async def staffsettings(ctx, *args, **kwargs):
-    if ctx.author.id != OWNER_ID:
-        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Only the bot owner can use this command.", color=discord.Color.red()))
+    """Displays current server staff configurations and rank ladder."""
+    if ctx.author.id != OWNER_ID and not user_is_supervisor(ctx):
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} You don't have permission to view staff settings.", color=discord.Color.red()))
         return
 
-    embed = discord.Embed(title=f"{EMOJIS['gear']} Bot Settings Configured", color=discord.Color.blurple())
+    supervisor_id = guild_setting("supervisor_roles", ctx.guild.id)
+    promo_id = guild_setting("promodemo_channels", ctx.guild.id)
+    audit_id = guild_setting("audit_channels", ctx.guild.id)
+    ladder = config.get("rank_ladders", {}).get(str(ctx.guild.id), [])
+
+    supervisor = ctx.guild.get_role(int(supervisor_id)) if supervisor_id else None
+    promo_channel = ctx.guild.get_channel(int(promo_id)) if promo_id else None
+    audit_channel = ctx.guild.get_channel(int(audit_id)) if audit_id else None
+    
+    ladder_str = " -> ".join([f"<@&{r_id}>" for r_id in ladder]) if ladder else "Not configured (`>ranks add @role`)"
+
+    embed = discord.Embed(
+        title=f"{EMOJIS['gear']} Server Staff Settings",
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    embed.add_field(
+        name=f"{EMOJIS['shield']} Supervisor Role",
+        value=supervisor.mention if supervisor else "Not configured (`>setstaffsupervisor @role`)",
+        inline=False
+    )
+    embed.add_field(
+        name=f"{EMOJIS['announcement']} Announcement Channel",
+        value=promo_channel.mention if promo_channel else "Not configured (`>setpromodemo #channel`)",
+        inline=False
+    )
+    embed.add_field(
+        name=f"{EMOJIS['audit']} Audit Log Channel",
+        value=audit_channel.mention if audit_channel else "Not configured (`>setaudit #channel`)",
+        inline=False
+    )
+    embed.add_field(
+        name=f"{EMOJIS['ladder']} Rank Ladder Sequence",
+        value=ladder_str,
+        inline=False
+    )
+    embed.add_field(
+        name=f"{EMOJIS['warning']} Staff Daily Quota",
+        value="Max **3 Kicks / 3 Bans per 24 hours** for Staff Members",
+        inline=False
+    )
+
+    embed.set_footer(text=f"{ctx.guild.name} • Configuration Dashboard", icon_url=ctx.guild.icon.url if ctx.guild.icon else None)
     await ctx.reply(embed=embed)
 
 
@@ -734,7 +776,7 @@ async def help_command(ctx, *args, **kwargs):
     embed.add_field(name=f"{EMOJIS['warning']} Moderation", value="`>kick`, `>ban`, `>clear`, `>mute`", inline=False)
     embed.add_field(name=f"{EMOJIS['user']} Utility & Info", value="`>ping`, `>serverinfo`, `>userinfo`, `>avatar`", inline=False)
     embed.add_field(name=f"{EMOJIS['success']} Fun & Games", value="`>coinflip`, `>roll`", inline=False)
-    embed.add_field(name=f"{EMOJIS['gear']} Setup", value="`>ranks add @role`, `>ranks clear`, `>setstaffsupervisor`, `>setpromodemo`, `>setaudit`", inline=False)
+    embed.add_field(name=f"{EMOJIS['gear']} Setup", value="`>ranks add @role`, `>ranks clear`, `>setstaffsupervisor`, `>setpromodemo`, `>setaudit`, `>staffsettings`", inline=False)
     await ctx.reply(embed=embed, mention_author=False)
 
 
