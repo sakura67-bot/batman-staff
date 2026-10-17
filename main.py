@@ -43,7 +43,8 @@ EMOJIS = {
     "warning": "<a:03_awarndns:1560000005492703303>",
     "error": "<a:error:1560000088732999810>",
     "user": "<:ntl_user:1556434847856328726>",
-    "bullet": "<:MW_arrow_right:1560001178937598175>"
+    "bullet": "<:MW_arrow_right:1560001178937598175>",
+    "welcome": "<a:wel:1560947318277283893>"
 }
 
 config = {
@@ -144,9 +145,14 @@ async def send_promodemo_embed(guild, member, role, action, moderator):
 
 
 async def change_staff_role(ctx, member, target_role, action):
+    if target_role is None:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} The specified or configured role could not be found in this server.", color=discord.Color.red()))
+        return
+
     if member.id == ctx.author.id or member.id == ctx.guild.owner_id or target_role.is_default() or target_role.managed:
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} Action unauthorized or invalid role.", color=discord.Color.orange()))
         return
+
     try:
         if action == "promote":
             await member.add_roles(target_role, reason=f"Staff promotion by {ctx.author}")
@@ -178,15 +184,23 @@ async def promo(ctx, staff: discord.Member, target_role: discord.Role = None, *a
     if target_role is None:
         ladder = config.get("rank_ladders", {}).get(str(ctx.guild.id))
         if not ladder:
-            await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} No rank ladder configured.", color=discord.Color.orange()))
+            await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} No rank ladder configured. Add roles using `>ranks add @role`", color=discord.Color.orange()))
             return
+
         user_role_ids = [r.id for r in staff.roles]
-        matched_index = next((idx for idx, r_id in enumerate(ladder) if r_id in user_role_ids), -1)
+        matched_index = -1
+        
+        for idx, r_id in enumerate(ladder):
+            if r_id in user_role_ids:
+                matched_index = idx
+
         next_index = matched_index + 1
         if next_index >= len(ladder):
-            await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} Already at the highest rank!", color=discord.Color.orange()))
+            await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} {staff.mention} is already at the highest rank on the ladder!", color=discord.Color.orange()))
             return
+
         target_role = ctx.guild.get_role(ladder[next_index])
+
     await change_staff_role(ctx, staff, target_role, "promote")
 
 
@@ -201,15 +215,23 @@ async def demo(ctx, staff: discord.Member, target_role: discord.Role = None, *ar
     if target_role is None:
         ladder = config.get("rank_ladders", {}).get(str(ctx.guild.id))
         if not ladder:
-            await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} No rank ladder configured.", color=discord.Color.orange()))
+            await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} No rank ladder configured. Add roles using `>ranks add @role`", color=discord.Color.orange()))
             return
+
         user_role_ids = [r.id for r in staff.roles]
-        matched_index = next((idx for idx, r_id in enumerate(ladder) if r_id in user_role_ids), -1)
+        matched_index = -1
+        
+        for idx, r_id in enumerate(ladder):
+            if r_id in user_role_ids:
+                matched_index = idx
+
         prev_index = matched_index - 1
         if prev_index < 0:
-            await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} Already at the lowest rank!", color=discord.Color.orange()))
+            await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} {staff.mention} has no lower rank on the ladder to demote to!", color=discord.Color.orange()))
             return
+
         target_role = ctx.guild.get_role(ladder[prev_index])
+
     await change_staff_role(ctx, staff, target_role, "demote")
 
 
@@ -226,8 +248,77 @@ async def super(ctx, member: discord.Member, *args, **kwargs):
         await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['warning']} Supervisor role not set up.", color=discord.Color.orange()))
         return
     assigned_role = ctx.guild.get_role(int(role_id))
+    if not assigned_role:
+        await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['error']} Configured supervisor role no longer exists.", color=discord.Color.red()))
+        return
     await member.add_roles(assigned_role, reason=f"Supervisor assigned by {ctx.author}")
     await ctx.reply(embed=discord.Embed(description=f"{EMOJIS['success']} Assigned supervisor role to {member.mention}.", color=discord.Color.green()))
+
+
+@bot.command()
+@commands.guild_only()
+async def superintro(ctx, *args, **kwargs):
+    """Deletes the trigger message and introduces the supervisor commands and workflow."""
+    try:
+        await ctx.message.delete()
+    except discord.Forbidden:
+        pass
+
+    if not user_is_supervisor(ctx):
+        err_msg = await ctx.send(embed=discord.Embed(description=f"{EMOJIS['error']} Only staff supervisors can use this command.", color=discord.Color.red()))
+        await err_msg.delete(delay=5)
+        return
+
+    embed = discord.Embed(
+        title=f"{EMOJIS['welcome']} Welcome Staff Supervisor!",
+        description=(
+            f"Welcome to the **Staff Supervision System**! {EMOJIS['shield']}\n"
+            "As a Supervisor, you have permission to manage the staff hierarchy using automated rank ladder commands."
+        ),
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    embed.add_field(
+        name=f"{EMOJIS['promo']} `>promo @member [@role]`",
+        value=(
+            f"{EMOJIS['bullet']} Promotes a staff member.\n"
+            f"{EMOJIS['bullet']} **Auto Ladder:** If no `@role` is given, the bot checks their current rank and promotes them to the **next step up** on the ladder.\n"
+            f"{EMOJIS['bullet']} **Manual Override:** Mention a specific `@role` to give that exact rank."
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name=f"{EMOJIS['demo']} `>demo @member [@role]`",
+        value=(
+            f"{EMOJIS['bullet']} Demotes a staff member.\n"
+            f"{EMOJIS['bullet']} **Auto Ladder:** If no `@role` is given, the bot finds their rank and demotes them to the **previous step down** on the ladder.\n"
+            f"{EMOJIS['bullet']} **Manual Override:** Mention a specific `@role` to strip that exact rank."
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name=f"{EMOJIS['gear']} `>role @member @role`",
+        value=(
+            f"{EMOJIS['bullet']} Quick toggle command.\n"
+            f"{EMOJIS['bullet']} Adds the role if the member doesn't have it, or removes it if they already do."
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name=f"{EMOJIS['announcement']} Logging & System Notes",
+        value=(
+            f"{EMOJIS['bullet']} All promotions and demotions generate an automated announcement in the promo channel.\n"
+            f"{EMOJIS['bullet']} Full action history is recorded into the audit log channel for accountability."
+        ),
+        inline=False
+    )
+
+    embed.set_footer(text=f"Requested by {ctx.author.display_name} • Supervisor Guide", icon_url=ctx.author.display_avatar.url)
+    await ctx.send(embed=embed)
 
 
 @bot.command()
@@ -537,7 +628,7 @@ async def staffsettings(ctx, *args, **kwargs):
 @bot.command(name="help")
 async def help_command(ctx, *args, **kwargs):
     embed = discord.Embed(title=f"{EMOJIS['gear']} All-In-One Bot Command Center", description="Here are all available command modules:", color=discord.Color.blurple())
-    embed.add_field(name=f"{EMOJIS['shield']} Staff & Management", value="`>promo`, `>demo`, `>super`, `>staff`, `>role`, `>steal`", inline=False)
+    embed.add_field(name=f"{EMOJIS['shield']} Staff & Management", value="`>promo`, `>demo`, `>super`, `>superintro`, `>staff`, `>role`, `>steal`", inline=False)
     embed.add_field(name=f"{EMOJIS['warning']} Moderation", value="`>kick`, `>ban`, `>clear`, `>mute`", inline=False)
     embed.add_field(name=f"{EMOJIS['user']} Utility & Info", value="`>ping`, `>serverinfo`, `>userinfo`, `>avatar`", inline=False)
     embed.add_field(name=f"{EMOJIS['success']} Fun & Games", value="`>coinflip`, `>roll`", inline=False)
