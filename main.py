@@ -739,6 +739,21 @@ async def send_verify_panel(ctx):
     await ctx.send(embed=embed, view=oauth_link_view("Verify with Discord", url), allowed_mentions=discord.AllowedMentions.none())
 
 
+@bot.command(name="verifiedcount", aliases=["verifycount"])
+async def verified_count(ctx):
+    if ctx.guild is None:
+        await ctx.reply("Run this command inside the server.", mention_author=False)
+        return
+    verified_members = config.get("verified_members", {}).get(str(ctx.guild.id), {})
+    count = len(verified_members) if isinstance(verified_members, dict) else 0
+    embed = discord.Embed(
+        title=f"{EMOJIS['shield']} Verification Count",
+        description=f"**{count:,}** account(s) have verified in **{ctx.guild.name}**.",
+        color=THEME_BLUE,
+    )
+    await ctx.reply(embed=embed, mention_author=False)
+
+
 @bot.command(name="pullmembers")
 async def pull_members_command(ctx, target: discord.Guild):
     if not is_bot_owner(ctx):
@@ -3214,3 +3229,4 @@ load_config()
 expire_old_target_limited_consents()
 apply_application_emoji_map()
 bot.run(TOKEN)
+
