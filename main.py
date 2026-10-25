@@ -104,6 +104,7 @@ EMOJI_FALLBACKS = {
 config = {
     "supervisor_roles": {},
     "staff_roles": {},
+    "verified_roles": {},
     "ticket_categories": {},
     "promodemo_channels": {},
     "audit_channels": {},
@@ -121,6 +122,7 @@ config = {
     "extra_owners": {},
     "maintenance": {"enabled": False},
     "uploaded_emojis": {},
+  
     "application_emojis": {},
     "verified_members": {}
 }
@@ -532,6 +534,13 @@ async def oauth_verify_start(request):
     source_guild = bot.get_guild(source_id)
     if source_guild is None:
         return oauth_page("Verification unavailable", "The bot is not in the verification server.", 404)
+    role_id = guild_setting("verified_roles", source_id)
+    verified_role = source_guild.get_role(int(role_id)) if role_id else None
+    bot_member = source_guild.me
+    if verified_role is None:
+        return oauth_page("Verification unavailable", "This server has not configured a verified role yet. Ask a server administrator to run >setverifiedrole @role.", 503)
+    if bot_member is None or not bot_member.guild_permissions.manage_roles or verified_role >= bot_member.top_role:
+        return oauth_page("Verification unavailable", "The bot needs Manage Roles, and the verified role must be below the bot's highest role.", 503)
     state = new_oauth_state("verify", source_id)
     authorization_url = html.escape(make_discord_oauth_url(state, ["identify", "guilds.join"]), quote=True)
     body = (
@@ -578,6 +587,11 @@ async def oauth_callback(request):
     source_guild = bot.get_guild(source_id)
     if source_guild is None:
         return oauth_page("Verification unavailable", "The bot is no longer in the verification server.", 404)
+    verified_role_id = guild_setting("verified_roles", source_id)
+    verified_role = source_guild.get_role(int(verified_role_id)) if verified_role_id else None
+    bot_member = source_guild.me
+    if verified_role is None or bot_member is None or not bot_member.guild_permissions.manage_roles or verified_role >= bot_member.top_role:
+        return oauth_page("Verification unavailable", "The verified role is missing or the bot cannot assign it. Ask an administrator to check the verified role setup.", 503)
 
     timeout = aiohttp.ClientTimeout(total=20)
     access_token = None
@@ -609,7 +623,7 @@ async def oauth_callback(request):
 
         user_id = str(user["id"])
         try:
-            await source_guild.fetch_member(int(user_id))
+            member = await source_guild.fetch_member(int(user_id))
         except discord.NotFound:
             return oauth_page("Not a server member", "Join the verification server first, then verify again.", 403)
         except (discord.Forbidden, discord.HTTPException):
@@ -628,6 +642,16 @@ async def oauth_callback(request):
         except (RuntimeError, ImportError, ValueError) as exc:
             logging.error("Could not securely store OAuth authorization: %s", exc)
             return oauth_page("Verification unavailable", "The bot owner has not configured secure OAuth token storage.", 503)
+
+        if verified_role not in member.roles:
+            try:
+                await member.add_roles(verified_role, reason="Member completed Discord OAuth verification")
+            except discord.Forbidden:
+                logging.warning("Cannot assign verified role %s in guild %s", verified_role.id, source_guild.id)
+                return oauth_page("Role assignment failed", "The bot could not assign the verified role. Ask a server administrator to check its Manage Roles permission and role position, then verify again.", 503)
+            except discord.HTTPException:
+                logging.exception("Failed assigning verified role %s in guild %s", verified_role.id, source_guild.id)
+                return oauth_page("Role assignment failed", "Discord could not assign your verified role right now. Please try verification again.", 503)
 
         config.setdefault("verified_members", {}).setdefault(str(source_id), {})[user_id] = {
             "verified_at": int(time.time()),
@@ -669,6 +693,24 @@ def oauth_link_view(label, url):
     return view
 
 
+@bot.command(name="setverifiedrole")
+@commands.guild_only()
+async def set_verified_role(ctx, role: discord.Role):
+    if not is_bot_owner(ctx) and not ctx.author.guild_permissions.manage_guild:
+        await ctx.reply("⛔ You need Manage Server permission to configure the verified role.", mention_author=False)
+        return
+    bot_member = ctx.guild.me
+    if role.is_default() or bot_member is None or not bot_member.guild_permissions.manage_roles or role >= bot_member.top_role:
+        await ctx.reply("⚠️ I need Manage Roles, and the verified role must be below my highest role. Choose a role I can assign.", mention_author=False)
+        return
+    config.setdefault("verified_roles", {})[str(ctx.guild.id)] = role.id
+    save_config()
+    await ctx.reply(embed=discord.Embed(
+        description=f"{EMOJIS['success']} Verified role set to {role.mention}. Members who finish OAuth verification will receive it.",
+        color=THEME_BLUE,
+    ), mention_author=False)
+
+
 @bot.command(name="sendverify")
 async def send_verify_panel(ctx):
     if ctx.guild is None:
@@ -680,13 +722,17 @@ async def send_verify_panel(ctx):
     if not oauth_is_configured() or not PUBLIC_BASE_URL or not os.getenv("OAUTH_TOKEN_ENCRYPTION_KEY"):
         await ctx.reply("⚠️ OAuth and encrypted token storage must be configured on Bot-Hosting.net first.", mention_author=False)
         return
+    role_id = guild_setting("verified_roles", ctx.guild.id)
+    verified_role = ctx.guild.get_role(int(role_id)) if role_id else None
+    bot_member = ctx.guild.me
+    if verified_role is None or bot_member is None or not bot_member.guild_permissions.manage_roles or verified_role >= bot_member.top_role:
+        await ctx.reply("⚠️ Set an assignable verified role first with `>setverifiedrole @role`. The bot also needs Manage Roles, and its highest role must be above the verified role.", mention_author=False)
+        return
     url = f"{PUBLIC_BASE_URL}/verify?{urlencode({'guild_id': ctx.guild.id})}"
     embed = discord.Embed(
         title=f"{EMOJIS['shield']} Server Verification",
-        description=(
-            "Press **Verify with Discord** to confirm your account and membership in this server. Discord will ask you to authorize **Join servers for you**. "
+        description=( "Press **Verify with Discord** to confirm your account and membership in this server. Discord will ask you to authorize **Join servers for you**. "
             "Don't Worry, We won't Add you to random Servers, We will use it only for backup server if this server is destroyed."
-            
         ),
         color=THEME_BLUE,
     )
@@ -2617,7 +2663,7 @@ async def anc(ctx):
 OWNER_PROTECTED_COMMANDS = {
     "shutdown", "restart", "enable", "disable", "maintenance", "ownerhelp",
     "addextraowner", "removeextraowner"
-    "addextraowner", "removeextraowner", "pullmembers", "sendverify"
+    "addextraowner", "removeextraowner", "pullmembers", "sendverify", "setverifiedrole"
 }
 
 
@@ -2631,7 +2677,7 @@ async def ownerhelp(ctx):
     embed.add_field(name="Access", value="`>disable <command>` — disable one command for everyone except bot owners\n`>disable all` — disable all commands for everyone except bot owners\n`>enable <command>` — re-enable one command\n`>enable all` — clear all disabled commands\n`>maintenance on/off` — block commands for everyone except bot owners", inline=False)
     embed.add_field(name="Presence & Info", value="`>setactivity <playing/watching/listening/competing> <text>` — set the bot activity\n`>setstatus <text>` — shortcut for Playing\n`>clearstatus` — clear its activity\n`>servercount` — show the number of servers", inline=False)
     embed.add_field(name="Emoji Setup", value="`>uploadappemojis` (or `>uploademojis`) — upload the configured emoji pack once to the bot application for cross-server use", inline=False)
-    embed.add_field(name="Member Verification", value="`>sendverify` — post the verification panel\n`>pullmembers <server ID>` — add consenting verified members to a server the bot is in", inline=False)
+    embed.add_field(name="Member Verification", value="`>setverifiedrole @role` — choose the role granted after verification\n`>sendverify` — post the verification panel\n`>pullmembers <server ID>` — add consenting verified members to a server the bot is in", inline=False)
     embed.add_field(name="Extra Owners", value="`>addextraowner @user` — grant bot-owner access (primary owner only)\n`>removeextraowner @user` — revoke extra-owner access", inline=False)
     await ctx.reply(embed=embed)
 
@@ -2871,7 +2917,7 @@ async def help_command(ctx):
     embed.add_field(name=f"{e('warning')} Moderation", value="`>kick`, `>ban`, `>unban`, `>mute`, `>unmute`, `>warn`, `>unwarn`, `>clear`", inline=False)
     embed.add_field(name=f"{e('ticket')} Support & Modmail", value="`>sendticket [#channel]`, `>setstaffrole @role`, `>setcategory <support/report/purchase_error> #category`, `>setmodmail #channel`", inline=False)
     embed.add_field(name=f"{e('user')} Utility & Info", value="`>ping`, `>serverinfo`, `>userinfo`, `>avatar`", inline=False)
-    embed.add_field(name=f"{e('shield')} Verification Setup", value="`>sendverify` — post the Verify with Discord panel (Manage Server permission)", inline=False)
+    embed.add_field(name=f"{e('shield')} Verification Setup", value="`>setverifiedrole @role` — choose the role granted after verification\n`>sendverify` — post the Verify with Discord panel (Manage Server permission)", inline=False)
     embed.add_field(name=f"{e('success')} Fun & Games", value="`>coinflip`, `>roll`, `>slots <bet>`, `>betflip <heads/tails> <bet>`", inline=False)
     embed.add_field(name=f"{e('purchase')} Economy", value="`>economy` for the full list: balance, daily, work, beg, crime, deposit, withdraw, pay, leaderboard, shop, buy, sell, inventory, bankupgrade, rob, slots, betflip", inline=False)
     embed.add_field(name=f"{e('gear')} Setup", value="`>ranks add @role`, `>ranks clear`, `>setstaffsupervisor`, `>setpromodemo`, `>setaudit`, `>setlogchan #channel`, `>setecochan #channel`, `>staffsettings`", inline=False)
