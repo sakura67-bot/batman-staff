@@ -121,7 +121,6 @@ config = {
     "extra_owners": {},
     "maintenance": {"enabled": False},
     "uploaded_emojis": {},
-    "application_emojis": {}
     "application_emojis": {},
     "verified_members": {}
 }
