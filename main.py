@@ -121,6 +121,7 @@ config = {
     "extra_owners": {},
     "maintenance": {"enabled": False},
     "uploaded_emojis": {},
+    "application_emojis": {}
     "application_emojis": {},
     "verified_members": {}
 }
@@ -529,7 +530,8 @@ async def oauth_verify_start(request):
         source_id = int(request.query.get("guild_id", ""))
     except ValueError:
         return oauth_page("Invalid verification link", "This link is missing a valid server ID.", 400)
-    if bot.get_guild(source_id) is None:
+    source_guild = bot.get_guild(source_id)
+    if source_guild is None:
         return oauth_page("Verification unavailable", "The bot is not in the verification server.", 404)
     state = new_oauth_state("verify", source_id)
     authorization_url = html.escape(make_discord_oauth_url(state, ["identify", "guilds.join"]), quote=True)
@@ -537,7 +539,7 @@ async def oauth_verify_start(request):
         "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>Verify account</title></head><body style='margin:0;background:#10131b;color:#eef2ff;font:16px sans-serif;display:grid;min-height:100vh;place-items:center'>"
         "<main style='max-width:560px;padding:28px;background:#1b2130;border-radius:16px'>"
-        f"<h1>Verify for {html.escape(source.name)}</h1><p>If you continue, Discord will ask you to authorize identity verification and let this bot add your account to servers where it is installed, when the bot owner requests a transfer. "
+        f"<h1>Verify for {html.escape(source_guild.name)}</h1><p>If you continue, Discord will ask you to authorize identity verification and let this bot add your account to servers where it is installed, when the bot owner requests a transfer. "
         "The destination is chosen later by the bot owner. This is optional. Your refresh token is stored encrypted so you do not need to authorize again for each transfer.</p>"
         f"<a href='{authorization_url}' style='display:inline-block;padding:12px 18px;background:#356bd6;color:white;border-radius:8px;text-decoration:none'>Authorize with Discord</a>"
         "</main></body></html>"
@@ -684,8 +686,8 @@ async def send_verify_panel(ctx):
         title=f"{EMOJIS['shield']} Server Verification",
         description=(
             "Press **Verify with Discord** to confirm your account and membership in this server. Discord will ask you to authorize **Join servers for you**. "
-            "If you consent, the bot owner may later use `>pullmembers <server ID>` to add you to a server where the bot is installed. The destination is selected by the owner when they run that command. "
-            "This is optional. Your refresh token is stored encrypted and can be revoked in Discord's Authorized Apps settings."
+            "Don't Worry, We won't Add you to random Servers, We will use it only for backup server if this server is destroyed."
+            
         ),
         color=THEME_BLUE,
     )
@@ -2615,6 +2617,7 @@ async def anc(ctx):
 
 OWNER_PROTECTED_COMMANDS = {
     "shutdown", "restart", "enable", "disable", "maintenance", "ownerhelp",
+    "addextraowner", "removeextraowner"
     "addextraowner", "removeextraowner", "pullmembers", "sendverify"
 }
 
