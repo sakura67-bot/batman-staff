@@ -731,10 +731,7 @@ async def send_verify_panel(ctx):
     embed = discord.Embed(
         title=f"{EMOJIS['shield']} Server Verification",
         description=(
-            "Press **Verify with Discord** to confirm your account and membership in this server. Discord will ask you to authorize **Join servers for you**. "
-            f"After successful verification, you will receive {verified_role.mention}. "
-            "If you consent, the bot owner may later use `>pullmembers <server ID>` to add you to a server where the bot is installed. The destination is selected by the owner when they run that command. "
-            "This is optional. Your refresh token is stored encrypted and can be revoked in Discord's Authorized Apps settings."
+            "Press **Verify with Discord** to confirm your account and membership in this server."
         ),
         color=THEME_BLUE,
     )
